@@ -1,41 +1,49 @@
 package ru.demo;
 
-import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class OwnExecutorService {
 
-    private final Thread[] threads;
-    private final LinkedList<Runnable> tasks = new LinkedList<>();
+    private final OwnThread[] threads;
+    private final OwnQueue queue;
 
-    private final Object taskMonitor = new Object();
-    private boolean isTasksClosed;
+    private AtomicBoolean isShutDown;
 
     public OwnExecutorService(int poolSize) {
         if (poolSize < 1)
-            throw new IllegalArgumentException("Количество потоков должно быть больше 0");
+            throw new IllegalArgumentException("Размер пула потоков должно быть больше нуля");
 
-        threads = new Thread[poolSize];
-        for(int threadIndex = 0; threadIndex < poolSize; threadIndex++) {
-            threads[threadIndex] = new Thread(() -> System.out.printf("Поток %s запущен\n", Thread.currentThread().getName()));
+        queue = new OwnQueue();
+        isShutDown = new AtomicBoolean(false);
+
+        threads = new OwnThread[poolSize];
+        for (int threadIndex = 0; threadIndex < poolSize; threadIndex++) {
+            threads[threadIndex] = new OwnThread(queue);
             threads[threadIndex].start();
         }
     }
 
     public void execute(Runnable r) {
         if (r == null)
-            throw new IllegalArgumentException("Задача не должна быть null");
+            throw new NullPointerException("Недопустимое значение");
 
-        synchronized (taskMonitor) {
-            if (isTasksClosed)
-                throw new IllegalArgumentException("Пул закрыт для добавления новых задач");
-            System.out.printf("В очередь добавлена задача %s\n", r);
-            tasks.add(r);
-        }
+        if (isShutDown.get())
+            throw new IllegalArgumentException("Запрет на добавление новых задач");
+
+        queue.put(r);
     }
 
     public void shutdown() {
-        synchronized (taskMonitor) {
-            isTasksClosed = true;
-        }
+        isShutDown = new AtomicBoolean(true);
+        Utils.log("Включен запрет на добавление новых заданий");
+    }
+
+    public void awaitTermination() {
+        Utils.log("Завершение работы пула потоков...");
+        if (!isShutDown.get())
+            shutdown();
+
+        queue.clear();
+        Utils.log("Завершение работы пула потоков выполнено");
     }
 }
